@@ -13,32 +13,57 @@ export default async function handler(req, res) {
 
   // Allow only POST
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+
+    return res.status(405).json({
+      error: "Method not allowed"
+    });
+
   }
 
   try {
 
+    console.log("🚀 Chat request started");
+
     const { message } = req.body;
 
     if (!message) {
+
       return res.status(400).json({
         error: "Message is required"
       });
+
     }
+
+    console.log("✅ User message:", message);
 
     // Load and chunk documents once
     if (!cachedChunks) {
 
-      console.log("Loading documents...");
+      console.log("📚 Loading documents...");
 
       const docs = await loadDocuments();
+
+      console.log("✅ Documents loaded:", docs.length);
+
       cachedChunks = chunkDocuments(docs);
 
-      console.log("Documents loaded:", cachedChunks.length);
+      console.log("✅ Chunks created:", cachedChunks.length);
+
     }
 
     // Find relevant context
-    const context = searchContext(message, cachedChunks);
+    const context = searchContext(
+      message,
+      cachedChunks
+    );
+
+    // Prevent token/context overflow
+    const safeContext = context.slice(0, 12000);
+
+    console.log(
+      "✅ Context length:",
+      safeContext.length
+    );
 
     const systemPrompt = `
 You are BOB, the assistant for United DFW Properties / United Insight Realty.
@@ -62,7 +87,6 @@ Conversation Rules:
 • You may respond to greetings or general questions normally.
 • Use the company documents as your primary source of information.
 
-
 Formatting:
 • Use headings
 • Use bullet points
@@ -75,45 +99,71 @@ Brenda Cole
 📞 817-360-8499
 `;
 
-    const completion = await openai.chat.completions.create({
+    console.log("🤖 Sending request to OpenAI...");
 
-      model: "gpt-4o-mini",
+    const completion =
+      await openai.chat.completions.create({
 
-      temperature: 0.2,
+        model: "gpt-4o-mini",
 
-      messages: [
+        temperature: 0.2,
 
-        {
-          role: "system",
-          content: systemPrompt
-        },
+        max_tokens: 700,
 
-        {
-          role: "system",
-          content: "Relevant document excerpts:\n\n" + context
-        },
+        messages: [
 
-        {
-          role: "user",
-          content: message
-        }
+          {
+            role: "system",
+            content: systemPrompt
+          },
 
-      ]
+          {
+            role: "system",
+            content:
+              "Relevant document excerpts:\n\n" +
+              safeContext
+          },
 
-    });
+          {
+            role: "user",
+            content: message
+          }
 
-    const reply = completion.choices[0].message.content;
+        ]
+
+      });
+
+    console.log("✅ OpenAI response received");
+
+    const reply =
+      completion?.choices?.[0]?.message?.content
+      || "No response generated.";
 
     return res.status(200).json({
+      success: true,
       reply
     });
 
   } catch (error) {
 
-    console.error("CHATBOT ERROR:", error);
+    console.error("❌ CHATBOT ERROR:");
+    console.error(error);
 
     return res.status(500).json({
-      error: "Internal server error"
+
+      success: false,
+
+      error:
+        error.message || "Internal server error",
+
+      type:
+        error.type || null,
+
+      code:
+        error.code || null
+
     });
+
   }
+
 }
